@@ -1637,7 +1637,7 @@ void Tracking::Track()
                     {
                         mpSystem->ResetActiveMap();
                         Verbose::PrintMess("Reseting current map...", Verbose::VERBOSITY_NORMAL);
-                    }else {
+                    } else {
                         CreateMapInAtlas();
                     }
 

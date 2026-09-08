@@ -48,42 +48,91 @@ bool LoadTelemetry(const string &path_to_telemetry_file,
                    vector<double> &coriTimeStamps,
                    vector<cv::Point3f> &vAcc,
                    vector<cv::Point3f> &vGyro) {
-
-    std::ifstream file;
-    file.open(path_to_telemetry_file.c_str());
+    std::ifstream file(path_to_telemetry_file.c_str());
     if (!file.is_open()) {
+      cerr << "Failed to open telemetry JSON: " << path_to_telemetry_file << endl;
       return false;
     }
+
     json j;
-    file >> j;
-    const auto accl = j["1"]["streams"]["ACCL"]["samples"];
-    const auto gyro = j["1"]["streams"]["GYRO"]["samples"];
-    const auto cori = j["1"]["streams"]["CORI"]["samples"];
-    std::map<double, cv::Point3f> sorted_acc;
-    std::map<double, cv::Point3f> sorted_gyr;
-
-    for (const auto &e : accl) {
-      cv::Point3f v((float)e["value"][0], (float)e["value"][1], (float)e["value"][2]);
-      sorted_acc.insert(std::make_pair((double)e["cts"] * MS_TO_S, v));
-    }
-    for (const auto &e : gyro) {
-      cv::Point3f v((float)e["value"][0], (float)e["value"][1], (float)e["value"][2]);
-      sorted_gyr.insert(std::make_pair((double)e["cts"] * MS_TO_S, v));
+    try {
+      file >> j;
+    } catch (const std::exception &e) {
+      cerr << "Failed to parse telemetry JSON '" << path_to_telemetry_file
+           << "': " << e.what() << endl;
+      return false;
     }
 
-    double imu_start_t = sorted_acc.begin()->first;
-    for (auto acc : sorted_acc) {
-        vTimeStamps.push_back(acc.first-imu_start_t);
-        vAcc.push_back(acc.second);
-    }
-    for (auto gyr : sorted_gyr) {
-        vGyro.push_back(gyr.second);
-    }
-    for (const auto &e : cori) {
-        coriTimeStamps.push_back((double)e["cts"] * MS_TO_S);
+    if (j.contains("accelerometer") && j.contains("gyroscope") && j.contains("timestamps_ns")) {
+        const auto &accl = j["accelerometer"];
+        const auto &gyro = j["gyroscope"];
+        const auto &t_ns = j["timestamps_ns"];
+
+        if (accl.empty() || accl.size() != gyro.size() || accl.size() != t_ns.size()) {
+            cerr << "Telemetry arrays have mismatched sizes!" << endl;
+            return false;
+        }
+
+        double imu_start_t = t_ns[0].get<double>() * 1e-9;
+        for (size_t i = 0; i < t_ns.size(); i++) {
+            vTimeStamps.push_back(t_ns[i].get<double>() * 1e-9 - imu_start_t);
+            vAcc.push_back(cv::Point3f(
+                accl[i][0].get<float>(),
+                accl[i][1].get<float>(),
+                accl[i][2].get<float>()));
+            vGyro.push_back(cv::Point3f(
+                gyro[i][0].get<float>(),
+                gyro[i][1].get<float>(),
+                gyro[i][2].get<float>()));
+        }
+        return true;
     }
 
-    file.close();
+    // py_gpmf_parser format emitted by GoProTelemetryExtractor::extract_data_to_json:
+    // {"ACCL":{"data":[[ax,ay,az],...],"timestamps_s":[...]},
+    //  "GYRO":{"data":[[gx,gy,gz],...],"timestamps_s":[...]}, ...}
+    if (!j.contains("ACCL") || !j.contains("GYRO") ||
+        !j["ACCL"].contains("data") || !j["ACCL"].contains("timestamps_s") ||
+        !j["GYRO"].contains("data") || !j["GYRO"].contains("timestamps_s")) {
+        cerr << "Unsupported telemetry JSON format. Expected accelerometer/gyroscope/timestamps_ns "
+             << "or py_gpmf_parser ACCL/GYRO data and timestamps_s fields." << endl;
+        return false;
+    }
+
+    const auto &accl = j["ACCL"]["data"];
+    const auto &acc_timestamps = j["ACCL"]["timestamps_s"];
+    const auto &gyro = j["GYRO"]["data"];
+    const auto &gyro_timestamps = j["GYRO"]["timestamps_s"];
+    if (accl.empty() || gyro.empty() || accl.size() != acc_timestamps.size() ||
+        gyro.size() != gyro_timestamps.size() || accl.size() != gyro.size()) {
+        cerr << "Invalid ACCL/GYRO telemetry array sizes." << endl;
+        return false;
+    }
+
+    const double imu_start_t = acc_timestamps[0].get<double>();
+    for (size_t i = 0; i < accl.size(); ++i) {
+        if (accl[i].size() != 3 || gyro[i].size() != 3) {
+            cerr << "Invalid ACCL/GYRO sample at index " << i << endl;
+            return false;
+        }
+        const double acc_t = acc_timestamps[i].get<double>();
+        const double gyro_t = gyro_timestamps[i].get<double>();
+        if (std::abs(acc_t - gyro_t) > 1e-6) {
+            cerr << "ACCL and GYRO timestamps differ at index " << i << endl;
+            return false;
+        }
+        vTimeStamps.push_back(acc_t - imu_start_t);
+        vAcc.push_back(cv::Point3f(accl[i][0].get<float>(), accl[i][1].get<float>(), accl[i][2].get<float>()));
+        vGyro.push_back(cv::Point3f(gyro[i][0].get<float>(), gyro[i][1].get<float>(), gyro[i][2].get<float>()));
+    }
+
+    if (j.contains("CORI") && j["CORI"].contains("timestamps_s")) {
+        for (const auto &timestamp : j["CORI"]["timestamps_s"]) {
+            coriTimeStamps.push_back(timestamp.get<double>() - imu_start_t);
+        }
+    }
+
+    cout << "Loaded " << vTimeStamps.size() << " IMU samples from py_gpmf_parser JSON." << endl;
     return true;
 }
 
@@ -159,7 +208,9 @@ int main(int argc, char **argv) {
   vector<double> imuTimestamps;
   vector<double> camTimestamps;
   vector<cv::Point3f> vAcc, vGyr;
-  LoadTelemetry(input_imu_json, imuTimestamps, camTimestamps, vAcc, vGyr);
+  if (!LoadTelemetry(input_imu_json, imuTimestamps, camTimestamps, vAcc, vGyr)) {
+    return -1;
+  }
 
   // open setting to get image resolution
   cv::FileStorage fsSettings(setting, cv::FileStorage::READ);
@@ -255,7 +306,12 @@ int main(int argc, char **argv) {
     if ((max_lost_frames > 0) && (n_lost_frames >= max_lost_frames)){
         std::cout << "Lost tracking on " << n_lost_frames << " >= " << max_lost_frames << " frames. Terminating!" << std::endl;
         SLAM.Shutdown();
-        return 1;
+        // Pangolin 0.8 can segfault in its global destructor after a viewer
+        // has been used.  SLAM has stopped its worker threads at this point,
+        // so bypass the broken GUI-library teardown.
+        std::cout.flush();
+        std::cerr.flush();
+        std::_Exit(1);
     }
 
     std::chrono::steady_clock::time_point t2 =
@@ -284,7 +340,13 @@ int main(int argc, char **argv) {
     SLAM.SaveTrajectoryCSV(output_trajectory_csv);
   }
 
-  return 0;
+  // This process has already written every requested output and Shutdown()
+  // has stopped the SLAM threads.  Pangolin's process-global GlFont teardown
+  // dereferences a destroyed display on this system, causing SIGSEGV after a
+  // successful GUI run.  Avoid that external-library destructor path.
+  std::cout.flush();
+  std::cerr.flush();
+  std::_Exit(0);
 }
 
 

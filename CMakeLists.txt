@@ -74,6 +74,7 @@ src/KeyFrameDatabase.cc
 src/Sim3Solver.cc
 src/Viewer.cc
 src/ImuTypes.cc
+src/ImuInitializer.cc
 src/G2oTypes.cc
 src/CameraModels/Pinhole.cpp
 src/CameraModels/KannalaBrandt8.cpp

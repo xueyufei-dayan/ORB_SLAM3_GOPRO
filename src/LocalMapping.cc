@@ -23,6 +23,7 @@
 #include "Optimizer.h"
 #include "Converter.h"
 #include "GeometricTools.h"
+#include "ImuInitializer.h"
 
 #include<mutex>
 #include<chrono>
@@ -31,8 +32,8 @@
 namespace ORB_SLAM3
 {
 
-LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, const float bMonocular, bool bInertial):
-    mpSystem(pSys), mbMonocular(bMonocular), mbInertial(bInertial), mbResetRequested(false), mbResetRequestedActiveMap(false), mbFinishRequested(false), mbFinished(true), mpAtlas(pAtlas), bInitializing(false),
+LocalMapping::LocalMapping(System* pSys, Atlas *pAtlas, Settings* pSettings, const float bMonocular, bool bInertial):
+    mpSystem(pSys), mbMonocular(bMonocular), mbInertial(bInertial), mbResetRequested(false), mbResetRequestedActiveMap(false), mbFinishRequested(false), mbFinished(true), mpAtlas(pAtlas), mpSettings(pSettings), bInitializing(false),
     mbAbortBA(false), mbStopped(false), mbStopRequested(false), mbNotStop(false), mbAcceptKeyFrames(true),
     mIdxInit(0), mScale(1.0), mInitSect(0), mbNotBA1(true), mbNotBA2(true), infoInertial(Eigen::MatrixXd::Zero(9,9))
 {
@@ -136,10 +137,19 @@ void LocalMapping::Run()
                 // Initialize IMU here
                 if(!mpCurrentKeyFrame->GetMap()->isImuInitialized() && mbInertial)
                 {
-                    if (mbMonocular)
-                        InitializeIMU(1e2, 1e10, true);
+                    const int imuMethod = mpSettings ? mpSettings->imuMethod() : System::IMU_ORB_SLAM3;
+                    if(imuMethod == System::IMU_ORB_SLAM3)
+                    {
+                        if (mbMonocular)
+                            InitializeIMU(1e2, 1e10, true);
+                        else
+                            InitializeIMU(1e2, 1e5, true);
+                    }
                     else
-                        InitializeIMU(1e2, 1e5, true);
+                    {
+                        // VIG-Init uses the Eigen/g2o solver in this codebase.
+                        VigInit(0.f, 0.f, true);
+                    }
                 }
 
 
@@ -1367,6 +1377,81 @@ void LocalMapping::InitializeIMU(float priorG, float priorA, bool bFIBA)
     mpCurrentKeyFrame->GetMap()->IncreaseChangeIndex();
 
     return;
+}
+
+void LocalMapping::VigInit(float priorG, float priorA, bool bFIBA)
+{
+    (void)priorG;
+    (void)priorA;
+    (void)bFIBA;
+    if(mbResetRequested || bInitializing)
+        return;
+
+    const int minimumKeyframes = mbMonocular ? 20 : 15;
+    list<KeyFrame*> temporalKeyframes;
+    for(KeyFrame* keyframe = mpCurrentKeyFrame; keyframe; keyframe = keyframe->mPrevKF)
+        temporalKeyframes.push_front(keyframe);
+    if(static_cast<int>(temporalKeyframes.size()) < minimumKeyframes ||
+       mpAtlas->KeyFramesInMap() < minimumKeyframes)
+        return;
+
+    bInitializing = true;
+    while(CheckNewKeyFrames()) {
+        ProcessNewKeyFrame();
+        temporalKeyframes.push_back(mpCurrentKeyFrame);
+    }
+    vector<KeyFrame*> keyframes(temporalKeyframes.begin(), temporalKeyframes.end());
+    const size_t begin = keyframes.size() > static_cast<size_t>(minimumKeyframes + 10) ?
+                         keyframes.size() - minimumKeyframes - 10 : 0;
+    vector<KeyFrame*> initializationKeyframes(keyframes.begin() + begin, keyframes.end());
+
+    // Estimate gyro and accelerometer biases with the existing g2o backend;
+    // VIG-Init then solves gravity and monocular scale with Eigen only.
+    Eigen::Vector3d gyroBias = Eigen::Vector3d::Zero();
+    Eigen::Vector3d accelBias = Eigen::Vector3d::Zero();
+    Optimizer::InertialOptimization(mpAtlas->GetCurrentMap(), gyroBias, accelBias, 0.f, 0.f);
+    if(!gyroBias.allFinite() || gyroBias.norm() > 1.0) {
+        bInitializing = false;
+        return;
+    }
+    ImuInitializer initializer(initializationKeyframes, gyroBias.cast<float>());
+    if(!initializer.Initialize() || !std::isfinite(initializer.scale) ||
+       initializer.scale < .1f || (mbMonocular && initializer.scale > 10.f) ||
+       (!mbMonocular && initializer.scale > 1.5f) || initializer.ba.norm() > 3.f) {
+        bInitializing = false;
+        return;
+    }
+
+    const IMU::Bias bias(initializer.ba.x(), initializer.ba.y(), initializer.ba.z(),
+                         initializer.bg.x(), initializer.bg.y(), initializer.bg.z());
+    for(KeyFrame* keyframe : temporalKeyframes) {
+        keyframe->SetNewBias(bias);
+        keyframe->bImu = true;
+        if(keyframe->mpImuPreintegrated)
+            keyframe->mpImuPreintegrated->Reintegrate();
+    }
+
+    const Eigen::Vector3f gravity = initializer.gravity.normalized();
+    const Eigen::Vector3f targetGravity(0.f, 0.f, -1.f);
+    const Eigen::Vector3f axis = targetGravity.cross(gravity);
+    const float axisNorm = axis.norm();
+    Eigen::Matrix3f rotation = Eigen::Matrix3f::Identity();
+    if(axisNorm > 1e-6f)
+        rotation = Sophus::SO3f::exp(axis * (std::acos(std::max(-1.f, std::min(1.f, targetGravity.dot(gravity)))) / axisNorm)).matrix();
+    {
+        unique_lock<mutex> lock(mpAtlas->GetCurrentMap()->mMutexMapUpdate);
+        mpAtlas->GetCurrentMap()->ApplyScaledRotation(Sophus::SE3f(rotation.transpose(), Eigen::Vector3f::Zero()),
+                                                       initializer.scale, true);
+        mpTracker->UpdateFrameIMU(initializer.scale, bias, mpCurrentKeyFrame);
+    }
+    if(!mpAtlas->isImuInitialized()) {
+        mpAtlas->SetImuInitialized();
+        mpTracker->t0IMU = mpTracker->mCurrentFrame.mTimeStamp;
+    }
+    cout << "VIG-Init succeeded: scale=" << initializer.scale
+         << ", gyro bias=" << initializer.bg.transpose()
+         << ", accel bias=" << initializer.ba.transpose() << endl;
+    bInitializing = false;
 }
 
 void LocalMapping::ScaleRefinement()

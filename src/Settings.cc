@@ -419,6 +419,15 @@ namespace ORB_SLAM3 {
         accWalk_ = readParameter<float>(fSettings,"IMU.AccWalk",found);
         imuFrequency_ = readParameter<float>(fSettings,"IMU.Frequency",found);
 
+        imuMethod_ = readParameter<int>(fSettings,"IMU.IMUMethod",found,false);
+        if(!found)
+            imuMethod_ = System::IMU_ORB_SLAM3;
+        if(imuMethod_ < System::IMU_ORB_SLAM3 || imuMethod_ > System::VIG_INIT)
+        {
+            std::cerr << "IMU.IMUMethod must be 0 (ORB-SLAM3) or 1 (VIG-Init); using 0" << std::endl;
+            imuMethod_ = System::IMU_ORB_SLAM3;
+        }
+
         cv::Mat cvTbc = readParameter<cv::Mat>(fSettings,"IMU.T_b_c1",found);
         Tbc_ = Converter::toSophus(cvTbc);
 
@@ -621,6 +630,7 @@ namespace ORB_SLAM3 {
             output << "\t-Gyro walk: " << settings.gyroWalk_ << endl;
             output << "\t-Accelerometer walk: " << settings.accWalk_ << endl;
             output << "\t-IMU frequency: " << settings.imuFrequency_ << endl;
+            output << "\t-IMU initializer: " << (settings.imuMethod_ == System::IMU_ORB_SLAM3 ? "ORB-SLAM3" : "VIG-Init") << endl;
         }
 
         if(settings.sensor_ == System::RGBD || settings.sensor_ == System::IMU_RGBD){

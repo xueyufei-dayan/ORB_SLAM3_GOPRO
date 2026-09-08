@@ -42,7 +42,7 @@ class LocalMapping
 {
 public:
     EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    LocalMapping(System* pSys, Atlas* pAtlas, const float bMonocular, bool bInertial);
+    LocalMapping(System* pSys, Atlas* pAtlas, Settings* pSettings, const float bMonocular, bool bInertial);
 
     void SetLoopCloser(LoopClosing* pLoopCloser);
 
@@ -133,6 +133,7 @@ protected:
     std::mutex mMutexFinish;
 
     Atlas* mpAtlas;
+    Settings* mpSettings;
 
     LoopClosing* mpLoopCloser;
     Tracking* mpTracker;
@@ -156,6 +157,7 @@ protected:
     std::mutex mMutexAccept;
 
     void InitializeIMU(float priorG = 1e2, float priorA = 1e6, bool bFirst = false);
+    void VigInit(float priorG = 0.f, float priorA = 0.f, bool bFIBA = true);
     void ScaleRefinement();
 
     bool bInitializing;

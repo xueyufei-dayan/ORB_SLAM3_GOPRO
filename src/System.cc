@@ -158,7 +158,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
                              aruco_dict, init_tag_id, init_tag_size);
 
     //Initialize the Local Mapping thread and launch
-    mpLocalMapper = new LocalMapping(this, mpAtlas, mSensor==MONOCULAR || mSensor==IMU_MONOCULAR,
+    mpLocalMapper = new LocalMapping(this, mpAtlas, settings_, mSensor==MONOCULAR || mSensor==IMU_MONOCULAR,
                                      mSensor==IMU_MONOCULAR || mSensor==IMU_STEREO || mSensor==IMU_RGBD);
     mptLocalMapping = new thread(&ORB_SLAM3::LocalMapping::Run,mpLocalMapper);
     if(settings_)
@@ -567,12 +567,24 @@ void System::Shutdown()
 
     mpLocalMapper->RequestFinish();
     mpLoopCloser->RequestFinish();
-    /*if(mpViewer)
+    // The viewer owns Pangolin/OpenCV GUI state in its own thread.  Leaving
+    // that thread alive while the process exits lets Qt tear down GUI objects
+    // from a different thread, which can result in a SIGSEGV.
+    //
+    // Shutdown can also be invoked by Viewer::Run() through its menu.  A
+    // viewer must not wait for (or join) itself in that case.
+    if(mpViewer)
     {
         mpViewer->RequestFinish();
-        while(!mpViewer->isFinished())
-            usleep(5000);
-    }*/
+        if(mptViewer && mptViewer->get_id() != std::this_thread::get_id())
+        {
+            while(!mpViewer->isFinished())
+                usleep(5000);
+
+            if(mptViewer->joinable())
+                mptViewer->join();
+        }
+    }
 
     // Wait until all thread have effectively stopped
     while(!mpLocalMapper->isFinished() || !mpLoopCloser->isFinished() || mpLoopCloser->isRunningGBA())
@@ -617,7 +629,7 @@ void System::SaveTrajectoryCSV(const string &filename)
     // Select the appropriate Map
     vector<Map*> vpMaps = mpAtlas->GetAllMaps();
     int numMaxKFs = 0;
-    Map* pBiggerMap;
+    Map* pBiggerMap = nullptr;
     std::cout << "There are " << std::to_string(vpMaps.size()) << " maps in the atlas" << std::endl;
     for(Map* pMap :vpMaps)
     {
@@ -627,6 +639,14 @@ void System::SaveTrajectoryCSV(const string &filename)
             numMaxKFs = pMap->GetAllKeyFrames().size();
             pBiggerMap = pMap;
         }
+    }
+
+    if(!pBiggerMap)
+    {
+        cerr << "WARNING: No valid map remains in the atlas; writing an empty trajectory." << endl;
+        ofstream f(filename.c_str());
+        f << "frame_idx,timestamp,state,is_lost,is_keyframe,x,y,z,q_x,q_y,q_z,q_w" << endl;
+        return;
     }
 
     vector<KeyFrame*> vpKFs = pBiggerMap->GetAllKeyFrames();

@@ -380,6 +380,15 @@ void Viewer::Run()
             break;
     }
 
+    // Shut Pangolin down while its OpenGL context is still owned by this
+    // thread.  Otherwise Pangolin's global GlFont destructor can dereference
+    // an already-destroyed display during process teardown.
+    pangolin::Quit();
+
+    // HighGUI uses Qt in this build.  Destroy its window in the same thread
+    // that created it; otherwise Qt may try to stop its timer from the main
+    // thread during process teardown.
+    cv::destroyWindow("ORB-SLAM3: Current Frame");
     SetFinish();
 }
 

@@ -4,38 +4,40 @@
 # Camera Parameters. Adjust them!
 #--------------------------------------------------------------------------------------------
 Camera.type: "KannalaBrandt8"
-# Camera calibration and distortion parameters (OpenICC https://github.com/urbste/OpenImuCameraCalibrator) 
-Camera.fx: 294.3985128655467 # 190.97847715128717
-Camera.fy: 294.2676587730904 # 190.9733070521226
-Camera.cx: 320.34104964791504 # 254.93170605935475
-Camera.cy: 184.26550363051686 # 256.8974428996504
+# Camera calibration and distortion parameters (OpenICC https://github.com/urbste/OpenImuCameraCalibrator)
+# Calibrated at 1920x1080, scaled to 640x360
+Camera.fx: 295.174511
+Camera.fy: 295.181978
+Camera.cx: 318.023987
+Camera.cy: 177.089047
 
-Camera.k1: 0.053294872732181864 # 0.0034823894022493434
-Camera.k2: 0.0025237988913267735 # 0.0007150348452162257
-Camera.k3: 0.0478167341537329 # -0.0020532361418706202
-Camera.k4: -0.042766952381336994 # 0.00020293673591811182
+Camera.k1: 0.059463
+Camera.k2: -0.093166
+Camera.k3: 0.245219
+Camera.k4: -0.174341
 
 
 # Camera resolution
 Camera.width: 640
 Camera.height: 360
 
-# Camera frames per second 
-Camera.fps: 50.0
+# Camera frames per second
+Camera.fps: 29.97
 
 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
 Camera.RGB: 1
     
 # Transformation from camera to imu (body frame)
 # calibrated with OpenICC https://github.com/urbste/OpenImuCameraCalibrator
+# Tbc = inv(T_imu_to_camera)
 Tbc: !!opencv-matrix
    rows: 4
    cols: 4
    dt: f
-   data: [-0.999969 , 0.00167755, -0.00766001,  -0.000830364 , 
-           0.00767096,  0.00661798,   -0.999949, -0.0164199,
-          -0.00162677,   -0.999977, -0.00663064, -0.00567071,
-          0.0, 0.0, 0.0, 1.0]
+   data: [-0.999858, -0.014364,  0.008779,  0.000027,
+          -0.008739, -0.002851, -0.999958, -0.005063,
+           0.014388, -0.999893,  0.002726, -0.000413,
+           0.0, 0.0, 0.0, 1.0]
 
 # IMU noise -> use OpenICC https://github.com/urbste/OpenImuCameraCalibrator
 IMU.NoiseGyro: 0.0015 # rad/s^0.5 
@@ -43,6 +45,8 @@ IMU.NoiseAcc: 0.017 # m/s^1.5
 IMU.GyroWalk: 5e-5 # rad/s^1.5
 IMU.AccWalk: 0.0055 # m/s^2.5
 IMU.Frequency: 200
+# IMU initializer: 0 = ORB-SLAM3, 1 = VIG-Init
+IMU.IMUMethod: 1
 
 
 #--------------------------------------------------------------------------------------------
