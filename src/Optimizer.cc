@@ -5598,4 +5598,86 @@ void Optimizer::OptimizeEssentialGraph4DoF(Map* pMap, KeyFrame* pLoopKF, KeyFram
     pMap->IncreaseChangeIndex();
 }
 
+
+bool Optimizer::InertialOptimization(Map *pMap, Eigen::Vector3d &bg, float priorG)
+{
+    int its = 20; // Check number of iterations
+    const vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
+
+    // Setup optimizer
+    g2o::SparseOptimizer optimizer;
+    g2o::BlockSolverX::LinearSolverType * linearSolver;
+
+    linearSolver = new g2o::LinearSolverEigen<g2o::BlockSolverX::PoseMatrixType>();
+
+    g2o::BlockSolverX * solver_ptr = new g2o::BlockSolverX(linearSolver);
+
+    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+    optimizer.setAlgorithm(solver);
+
+    // Biases
+    VertexGyroBias* VG = new VertexGyroBias(vpKFs.back());
+    VG->setId(0);
+    VG->setFixed(false);
+    optimizer.addVertex(VG);
+
+    // prior acc bias
+    Eigen::Vector3f bprior;
+    bprior.setZero();
+
+    EdgePriorGyro* epg = new EdgePriorGyro(bprior);
+    epg->setVertex(0,dynamic_cast<g2o::OptimizableGraph::Vertex*>(VG));
+    double infoPriorG = priorG;
+    epg->setInformation(infoPriorG*Eigen::Matrix3d::Identity());
+    optimizer.addEdge(epg);
+
+    int cnt = 0;
+    for (int i = 0; i < vpKFs.size(); i++)
+    {
+        KeyFrame* pKF1 = vpKFs[i]->mPrevKF;
+        KeyFrame* pKF2 = vpKFs[i];
+
+        if (!pKF1 || !pKF2)
+        {
+            cnt += 1;
+            continue;
+        }
+
+        IMU::Preintegrated* pInt12 = pKF2->mpImuPreintegrated;
+        if(!pInt12)
+        {
+            cnt += 1;
+            continue;
+        }
+
+        EdgeGyro* ei = new EdgeGyro(pInt12, pKF1->GetImuRotation().cast<double>(), pKF2->GetImuRotation().cast<double>());
+        ei->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(VG));
+
+        optimizer.addEdge(ei);
+    }
+
+    if (cnt > (vpKFs.size()-3))
+        return false;
+    
+    // Compute error for different scales
+    optimizer.setVerbose(false);
+    optimizer.initializeOptimization();
+    optimizer.computeActiveErrors();
+    float err = optimizer.activeRobustChi2();
+    optimizer.optimize(its);
+    optimizer.computeActiveErrors();
+    float err_end = optimizer.activeRobustChi2();
+
+    // TODO: Some convergence problems have been detected here
+    if(2*err < err_end || isnan(err) || isnan(err_end)) 
+    {
+        cout << "FAIL LOCAL-INERTIAL BA!!!!" << endl;
+        bg.setZero();
+        return false;
+    }
+
+    bg << VG->estimate();
+    return true;
+}
+
 } //namespace ORB_SLAM

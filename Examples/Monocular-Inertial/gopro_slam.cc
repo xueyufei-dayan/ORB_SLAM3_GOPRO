@@ -322,7 +322,6 @@ int main(int argc, char **argv) {
             .count();
 
     if (frame_idx % 100 == 0) {
-      std::cout<<"Video FPS: "<<fps<<"\n";
       std::cout<<"ORB-SLAM 3 running at: "<<1./ttrack<< " FPS\n";
     }
   }

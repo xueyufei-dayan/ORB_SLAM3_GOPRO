@@ -2181,7 +2181,7 @@ void Tracking::MonocularInitialization()
             mvIniP3D,
             vbTriangulated
         );
-        std::cout << "init_success=" << reconstruct_success << endl;
+
         if (!reconstruct_success) {
             reconstruct_success = mpCamera->ReconstructWithTwoViewsAndTags(
                 mInitialFrame.markerIds,
@@ -2197,10 +2197,11 @@ void Tracking::MonocularInitialization()
                 mvIniP3D,
                 vbTriangulated
             );
-            std::cout << " tag_init_success=" << reconstruct_success << endl;
         }
 
         if (reconstruct_success) {
+            std::cout << " tag_init_success=" << reconstruct_success << endl;
+            
             for(size_t i=0, iend=mvIniMatches.size(); i<iend;i++)
             {
                 if(mvIniMatches[i]>=0 && !vbTriangulated[i])

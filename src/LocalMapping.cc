@@ -147,8 +147,9 @@ void LocalMapping::Run()
                     }
                     else
                     {
-                        // VIG-Init uses the Eigen/g2o solver in this codebase.
-                        VigInit(0.f, 0.f, true);
+                        // This VIG path performs its own alignment only; it does
+                        // not run FullInertialBA or the native VIBA 1/2 passes.
+                        VigInit(0.f, 0.f, false);
                     }
                 }
 
@@ -156,7 +157,11 @@ void LocalMapping::Run()
                 // Check redundant local Keyframes
                 KeyFrameCulling();
 
-                if ((mTinit<50.0f) && mbInertial)
+                // VIG-Init is a self-contained initialization path.  As in the
+                // reference implementation, only the native ORB-SLAM3 path runs
+                // the subsequent VIBA 1/2 and scale-refinement passes.
+                if ((mTinit<50.0f) && mbInertial &&
+                    (!mpSettings || mpSettings->imuMethod() == System::IMU_ORB_SLAM3))
                 {
                     if(mpCurrentKeyFrame->GetMap()->isImuInitialized() && mpTracker->mState==Tracking::OK) // Enter here everytime local-mapping is called
                     {
@@ -1408,8 +1413,7 @@ void LocalMapping::VigInit(float priorG, float priorA, bool bFIBA)
     // Estimate gyro and accelerometer biases with the existing g2o backend;
     // VIG-Init then solves gravity and monocular scale with Eigen only.
     Eigen::Vector3d gyroBias = Eigen::Vector3d::Zero();
-    Eigen::Vector3d accelBias = Eigen::Vector3d::Zero();
-    Optimizer::InertialOptimization(mpAtlas->GetCurrentMap(), gyroBias, accelBias, 0.f, 0.f);
+    Optimizer::InertialOptimization(mpAtlas->GetCurrentMap(), gyroBias, 0.f);
     if(!gyroBias.allFinite() || gyroBias.norm() > 1.0) {
         bInitializing = false;
         return;
@@ -1430,6 +1434,19 @@ void LocalMapping::VigInit(float priorG, float priorA, bool bFIBA)
         if(keyframe->mpImuPreintegrated)
             keyframe->mpImuPreintegrated->Reintegrate();
     }
+    // Initialize velocities in the current visual-map scale.  They are scaled
+    // and rotated together with the map below.
+    for(KeyFrame* keyframe : temporalKeyframes) {
+        KeyFrame* previous = keyframe->mPrevKF;
+        if(!previous || !keyframe->mpImuPreintegrated ||
+           keyframe->mpImuPreintegrated->dT <= 0.f)
+            continue;
+        const Eigen::Vector3f velocity =
+            (keyframe->GetImuPosition() - previous->GetImuPosition()) /
+            keyframe->mpImuPreintegrated->dT;
+        keyframe->SetVelocity(velocity);
+        previous->SetVelocity(velocity);
+    }
 
     const Eigen::Vector3f gravity = initializer.gravity.normalized();
     const Eigen::Vector3f targetGravity(0.f, 0.f, -1.f);
@@ -1448,6 +1465,10 @@ void LocalMapping::VigInit(float priorG, float priorA, bool bFIBA)
         mpAtlas->SetImuInitialized();
         mpTracker->t0IMU = mpTracker->mCurrentFrame.mTimeStamp;
     }
+    // VIG-Init owns the complete initial alignment.  Prevent the state machine
+    // from scheduling the native VIBA 1/2 refinements afterwards.
+    mpAtlas->GetCurrentMap()->SetIniertialBA1();
+    mpAtlas->GetCurrentMap()->SetIniertialBA2();
     cout << "VIG-Init succeeded: scale=" << initializer.scale
          << ", gyro bias=" << initializer.bg.transpose()
          << ", accel bias=" << initializer.ba.transpose() << endl;
