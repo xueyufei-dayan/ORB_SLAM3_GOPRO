@@ -1,0 +1,18 @@
+services:
+  orb-slam3:
+    image: orb-slam3:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BUILD_JOBS: ${BUILD_JOBS:-4}
+    ipc: host
+    stdin_open: true
+    tty: true
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      QT_X11_NO_MITSHM: "1"
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ${ORB_SLAM3_DATASET_DIR:-./data}:/data:ro
+      - ${ORB_SLAM3_OUTPUT_DIR:-./output}:/output

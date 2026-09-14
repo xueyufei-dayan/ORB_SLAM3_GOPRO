@@ -1,0 +1,25 @@
+.git
+.github
+.idea
+.vscode
+
+# build.sh creates these directories inside the image.
+build
+Thirdparty/DBoW2/build
+Thirdparty/g2o/build
+Thirdparty/Sophus/build
+Thirdparty/Pangolin/build
+Examples/ROS/ORB_SLAM3/build
+Examples/ROS/ORB_SLAM3/lib
+Vocabulary/ORBvoc.txt
+
+lib
+*.o
+*.so
+*.a
+*.log
+
+*~
+*.swp
+__pycache__
+*.py[cod]

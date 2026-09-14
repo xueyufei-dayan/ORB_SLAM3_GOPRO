@@ -95,6 +95,10 @@ chmod +x build.sh
 
 This will create **libORB_SLAM3.so**  at *lib* folder and the executables in *Examples* folder.
 
+## Docker
+
+The repository includes a Docker image definition and Compose configuration. See the [Chinese Docker usage guide](docs/docker_usage_zh.md) for build, X11 visualization, dataset mounting, camera access, and example commands.
+
 # 4. Running ORB-SLAM3 with your camera
 
 Directory `Examples` contains several demo programs and calibration files to run ORB-SLAM3 in all sensor configurations with Intel Realsense cameras T265 and D435i. The steps needed to use your own camera are: 
