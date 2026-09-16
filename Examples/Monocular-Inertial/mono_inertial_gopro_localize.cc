@@ -136,7 +136,7 @@ void draw_gripper_mask(cv::Mat &img){
 int main(int argc, char **argv) {
   CLI::App app{"App description"};
 
-  std::string vocabulary = "../../Vocabulary/ORBvoc.txt";
+  std::string vocabulary = "Vocabulary/ORBvoc.txt";
   app.add_option("-v,--vocabulary", vocabulary)->capture_default_str();
 
   std::string settings = "gopro10_maxlens_fisheye_setting.yaml";

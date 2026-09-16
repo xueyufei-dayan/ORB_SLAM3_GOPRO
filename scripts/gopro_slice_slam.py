@@ -18,9 +18,9 @@ The output layout follows ``.../slam_v3``::
       slices.json                       # [[start_frame, end_frame], ...]
 
 An optional IMU JSON can be supplied; otherwise the script invokes
-gopro_extract_imu.py to extract telemetry next to the GoPro MP4 first.  It uses
-ffmpeg to make frame-exact temporary MP4s and creates a matching, time-rebased
-IMU JSON for every window.
+gopro_extract_images_and_imu.py in IMU-only mode and stores telemetry in the
+SLAM output directory.  It uses ffmpeg to make frame-exact temporary MP4s and
+creates a matching, time-rebased IMU JSON for every window.
 """
 
 import argparse
@@ -74,7 +74,7 @@ def load_and_slice_imu(imu_path, start_seconds, end_seconds, destination):
     required = ("accelerometer", "gyroscope", "timestamps_ns")
     if not all(key in data for key in required):
         raise ValueError("IMU JSON must contain accelerometer, gyroscope and timestamps_ns; "
-                         "generate it with scripts/gopro_extract_imu.py first")
+                         "generate it with scripts/gopro_extract_images_and_imu.py first")
 
     timestamps = data["timestamps_ns"]
     accel = data["accelerometer"]
@@ -204,7 +204,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("video", type=Path, help="GoPro MP4 input")
     parser.add_argument("imu_json", type=Path, nargs="?",
-                        help="Optional IMU JSON from gopro_extract_imu.py (default: extract from video)")
+                        help="Optional IMU JSON (default: extract from the video)")
     parser.add_argument("-o", "--output-dir", type=Path, default=None,
                         help="Output directory (default: <video_stem>_slam_v3)")
     parser.add_argument("--slam", type=Path, default=DEFAULT_SLAM, help="gopro_slam executable")
@@ -240,13 +240,15 @@ def main():
     temporary_dir = output_dir / ".segments"
     temporary_dir.mkdir(exist_ok=True)
     if args.imu_json is None:
-        args.imu_json = args.video.with_suffix(".json")
+        args.imu_json = output_dir / "imu.json"
         if args.imu_json.is_file():
             print(f"[INFO] Reusing IMU JSON next to video: {args.imu_json}", flush=True)
         else:
             print(f"[INFO] No IMU JSON supplied; extracting GoPro telemetry to {args.imu_json}", flush=True)
-            run([sys.executable, str(REPO_ROOT / "scripts/gopro_extract_imu.py"),
-                 str(args.video.resolve()), "--output", str(args.imu_json.resolve())], cwd=REPO_ROOT)
+            run([sys.executable,
+                 str(REPO_ROOT / "scripts/gopro_extract_images_and_imu.py"),
+                 str(args.video.resolve()), "--imu-only", "--output-dir",
+                 str(output_dir.resolve())], cwd=REPO_ROOT)
     elif not args.imu_json.is_file():
         sys.exit(f"IMU JSON not found: {args.imu_json}")
     frame_count, fps = video_info(args.video)

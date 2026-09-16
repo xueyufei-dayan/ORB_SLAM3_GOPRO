@@ -45,9 +45,10 @@ void signal_callback_handler(int signum) {
 
 bool LoadTelemetry(const string &path_to_telemetry_file,
                    vector<double> &vTimeStamps,
-                   vector<double> &coriTimeStamps,
                    vector<cv::Point3f> &vAcc,
-                   vector<cv::Point3f> &vGyro) {
+                   vector<cv::Point3f> &vGyro,
+                   long double &imgTimeOriginNs,
+                   vector<long double> &vImgTimeStampsNs) {
     std::ifstream file(path_to_telemetry_file.c_str());
     if (!file.is_open()) {
       cerr << "Failed to open telemetry JSON: " << path_to_telemetry_file << endl;
@@ -71,6 +72,13 @@ bool LoadTelemetry(const string &path_to_telemetry_file,
         if (accl.empty() || accl.size() != gyro.size() || accl.size() != t_ns.size()) {
             cerr << "Telemetry arrays have mismatched sizes!" << endl;
             return false;
+        }
+        if (j.contains("img_timestamps_ns") && !j["img_timestamps_ns"].empty()) {
+            const auto &img_ts = j["img_timestamps_ns"];
+            imgTimeOriginNs = img_ts[0].get<long double>();
+            vImgTimeStampsNs.reserve(img_ts.size());
+            for (size_t i = 0; i < img_ts.size(); ++i)
+                vImgTimeStampsNs.push_back(img_ts[i].get<long double>());
         }
 
         double imu_start_t = t_ns[0].get<double>() * 1e-9;
@@ -126,12 +134,6 @@ bool LoadTelemetry(const string &path_to_telemetry_file,
         vGyro.push_back(cv::Point3f(gyro[i][0].get<float>(), gyro[i][1].get<float>(), gyro[i][2].get<float>()));
     }
 
-    if (j.contains("CORI") && j["CORI"].contains("timestamps_s")) {
-        for (const auto &timestamp : j["CORI"]["timestamps_s"]) {
-            coriTimeStamps.push_back(timestamp.get<double>() - imu_start_t);
-        }
-    }
-
     cout << "Loaded " << vTimeStamps.size() << " IMU samples from py_gpmf_parser JSON." << endl;
     return true;
 }
@@ -149,7 +151,7 @@ int main(int argc, char **argv) {
   // CLI parsing
   CLI::App app{"GoPro SLAM"};
 
-  std::string vocabulary = "../../Vocabulary/ORBvoc.txt";
+  std::string vocabulary = "Vocabulary/ORBvoc.txt";
   app.add_option("-v,--vocabulary", vocabulary)->capture_default_str();
 
   std::string setting = "gopro10_maxlens_fisheye_setting_v1.yaml";
@@ -206,9 +208,11 @@ int main(int argc, char **argv) {
   cv::setNumThreads(num_threads);
 
   vector<double> imuTimestamps;
-  vector<double> camTimestamps;
   vector<cv::Point3f> vAcc, vGyr;
-  if (!LoadTelemetry(input_imu_json, imuTimestamps, camTimestamps, vAcc, vGyr)) {
+  long double imgTimeOriginNs = 0.0L;
+  vector<long double> vImgTimeStampsNs;
+  if (!LoadTelemetry(input_imu_json, imuTimestamps, vAcc, vGyr,
+                     imgTimeOriginNs, vImgTimeStampsNs)) {
     return -1;
   }
 
@@ -237,10 +241,12 @@ int main(int argc, char **argv) {
   cv::Ptr<cv::aruco::Dictionary> aruco_dict = cv::aruco::getPredefinedDictionary(aruco_dict_id);
   ORB_SLAM3::System SLAM(
     vocabulary, setting, 
-    ORB_SLAM3::System::IMU_MONOCULAR, 
+    ORB_SLAM3::System::IMU_MONOCULAR,
     enable_gui, load_map, save_map,
     aruco_dict, init_tag_id, init_tag_size
   );
+
+  SLAM.SetTrajectoryTimeOriginNs(imgTimeOriginNs);
 
   // Open video file
   cv::VideoCapture cap(input_video, cv::CAP_FFMPEG);
@@ -255,12 +261,15 @@ int main(int argc, char **argv) {
   cout << "Video opened using backend " << cap.getBackendName() << endl;
   cout << "There are " << nImages << " frames in total" << endl;
   cout << "video FPS " << fps << endl;
-  
   std::vector<ORB_SLAM3::IMU::Point> vImuMeas;
   size_t last_imu_idx = 0;
   int n_lost_frames = 0;
   for (int frame_idx=0; frame_idx < nImages; frame_idx++){
-    double tframe = (double)frame_idx / fps;
+    double tframe;
+    if (!vImgTimeStampsNs.empty() && frame_idx < (int)vImgTimeStampsNs.size())
+        tframe = (vImgTimeStampsNs[frame_idx] - imgTimeOriginNs) * 1e-9;
+    else
+        tframe = (double)frame_idx / fps;
 
     // read frame from video
     cv::Mat im,im_track;

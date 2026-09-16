@@ -1398,7 +1398,7 @@ void Tracking::Track()
         // logging before return
         mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
         mlpReferences.push_back(mlpReferences.back());
-        mlFrameTimes.push_back(mlFrameTimes.back());
+        mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
         mlbLost.push_back(true);
         mlState.push_back(mState);
         return;
@@ -1423,7 +1423,7 @@ void Tracking::Track()
             // logging before return
             mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
             mlpReferences.push_back(mlpReferences.back());
-            mlFrameTimes.push_back(mlFrameTimes.back());
+            mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
             mlbLost.push_back(true);
             mlState.push_back(mState);
             return;
@@ -1456,7 +1456,7 @@ void Tracking::Track()
                 // logging before return
                 mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
                 mlpReferences.push_back(mlpReferences.back());
-                mlFrameTimes.push_back(mlFrameTimes.back());
+                mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
                 mlbLost.push_back(true);
                 mlState.push_back(mState);
                 return;
@@ -1533,7 +1533,7 @@ void Tracking::Track()
             // initialization failed. still record the frames.
             mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
             mlpReferences.push_back(mlpReferences.back());
-            mlFrameTimes.push_back(mlFrameTimes.back());
+            mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
             mlbLost.push_back(true);
             mlState.push_back(mState);
             return;
@@ -1649,7 +1649,7 @@ void Tracking::Track()
                     // logging before return
                     mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
                     mlpReferences.push_back(mlpReferences.back());
-                    mlFrameTimes.push_back(mlFrameTimes.back());
+                    mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
                     mlbLost.push_back(true);
                     mlState.push_back(mState);
                     return;
@@ -1945,7 +1945,7 @@ void Tracking::Track()
                 // logging before return
                 mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
                 mlpReferences.push_back(mlpReferences.back());
-                mlFrameTimes.push_back(mlFrameTimes.back());
+                mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
                 mlbLost.push_back(true);
                 mlState.push_back(mState);
                 return;
@@ -1959,7 +1959,7 @@ void Tracking::Track()
                     // logging before return
                     mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
                     mlpReferences.push_back(mlpReferences.back());
-                    mlFrameTimes.push_back(mlFrameTimes.back());
+                    mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
                     mlbLost.push_back(true);
                     mlState.push_back(mState);
                     return;
@@ -1970,7 +1970,7 @@ void Tracking::Track()
             // logging before return
             mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
             mlpReferences.push_back(mlpReferences.back());
-            mlFrameTimes.push_back(mlFrameTimes.back());
+            mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
             mlbLost.push_back(true);
             mlState.push_back(mState);
             return;
@@ -1999,7 +1999,7 @@ void Tracking::Track()
         // This can happen if tracking is lost
         mlRelativeFramePoses.push_back(mlRelativeFramePoses.back());
         mlpReferences.push_back(mlpReferences.back());
-        mlFrameTimes.push_back(mlFrameTimes.back());
+        mlFrameTimes.push_back(mCurrentFrame.mTimeStamp);
         mlbLost.push_back(is_lost);
         mlState.push_back(mState);
     }

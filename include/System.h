@@ -157,6 +157,12 @@ public:
     void Shutdown();
     bool isShutDown();
 
+    // Trajectory files report seconds relative to the first frame by default.
+    // Set the absolute (Unix) time origin of that first frame, in nanoseconds,
+    // so that saved timestamps are the same absolute timestamps as the input
+    // images instead of relative seconds.
+    void SetTrajectoryTimeOriginNs(long double origin_ns);
+
     void SaveTrajectoryCSV(const string &filename);
 
     // Save camera trajectory in the TUM RGB-D dataset format.
@@ -274,6 +280,10 @@ private:
     string mStrSaveAtlasToFile;
 
     string mStrVocabularyFilePath;
+
+    // Absolute time of the first input frame in nanoseconds, used when writing
+    // trajectories.  0 keeps the historical "seconds since first frame" output.
+    long double mTrajectoryTimeOriginNs = 0.0L;
 
     Settings* settings_;
 };

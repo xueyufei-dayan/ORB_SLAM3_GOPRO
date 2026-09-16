@@ -22,7 +22,10 @@
 #include "Converter.h"
 #include <thread>
 #include <pangolin/pangolin.h>
+#include <cmath>
+#include <fstream>
 #include <iomanip>
+#include <ostream>
 #include <openssl/md5.h>
 #include <boost/serialization/base_object.hpp>
 #include <boost/serialization/string.hpp>
@@ -35,6 +38,21 @@
 
 namespace ORB_SLAM3
 {
+
+namespace
+{
+// Trajectory files historically store seconds relative to the first frame.
+// When the absolute origin of that first frame is known, write the same
+// absolute Unix-nanosecond timestamps used by the input images instead.
+void WriteTrajectoryTimestamp(std::ostream &stream, const double timestamp,
+                              const long double origin_ns)
+{
+    if(origin_ns != 0.0L)
+        stream << std::llround(static_cast<long double>(timestamp) * 1e9L + origin_ns);
+    else
+        stream << std::setprecision(6) << timestamp;
+}
+} // namespace
 
 Verbose::eLevel Verbose::th = Verbose::VERBOSITY_NORMAL;
 
@@ -104,6 +122,18 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     mStrVocabularyFilePath = strVocFile;
     
     cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
+    // DBoW2's loadFromTextFile() only tests f.eof(), which is false for a file
+    // that could not be opened.  Its read loop then never terminates and keeps
+    // pushing nodes, so a wrong path shows up as a 100% CPU hang that eats all
+    // memory.  Fail fast instead.
+    {
+        std::ifstream vocabulary_file(strVocFile.c_str());
+        if(!vocabulary_file.good())
+        {
+            cerr << "Wrong path to vocabulary. Failed to open at: " << strVocFile << endl;
+            exit(-1);
+        }
+    }
     mpVocabulary = new ORBVocabulary();
     bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
     if(!bVocLoad)
@@ -617,6 +647,11 @@ bool System::isShutDown() {
     return mbShutDown;
 }
 
+void System::SetTrajectoryTimeOriginNs(long double origin_ns)
+{
+    mTrajectoryTimeOriginNs = origin_ns;
+}
+
 void System::SaveTrajectoryCSV(const string &filename)
 {
     cout << endl << "Saving camera trajectory to " << filename << " ..." << endl;
@@ -683,7 +718,8 @@ void System::SaveTrajectoryCSV(const string &filename)
     {
         // write frame_idx, timestamp
         f << frame_idx << ',';
-        f << setprecision(6) << *iter_timestamp << ',';
+        WriteTrajectoryTimestamp(f, *iter_timestamp, mTrajectoryTimeOriginNs);
+        f << ',';
         f << *iter_state << ',';
         
         if (*iter_is_lost){
@@ -811,7 +847,8 @@ void System::SaveTrajectoryTUM(const string &filename)
         Eigen::Vector3f twc = Twc.translation();
         Eigen::Quaternionf q = Twc.unit_quaternion();
 
-        f << setprecision(6) << *lT << " " <<  setprecision(9) << twc(0) << " " << twc(1) << " " << twc(2) << " " << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << endl;
+        WriteTrajectoryTimestamp(f, *lT, mTrajectoryTimeOriginNs);
+        f << " " <<  setprecision(9) << twc(0) << " " << twc(1) << " " << twc(2) << " " << q.x() << " " << q.y() << " " << q.z() << " " << q.w() << endl;
     }
     f.close();
     cout << endl << "TUM camera trajectory saved!" << endl;
