@@ -215,8 +215,8 @@ def read_fisheye_calibration(settings):
     return matrix, distortion, calibration_size, extrinsics
 
 
-def make_undistort_maps(settings, image_size, balance):
-    """Build full-resolution OpenCV fisheye maps for decoded frame dimensions."""
+def make_undistort_maps(settings, image_size):
+    """Undistort into a pinhole image with the input image's intrinsics."""
     camera_matrix, distortion, calibration_size, _ = read_fisheye_calibration(settings)
     scale_x = image_size[0] / calibration_size[0]
     scale_y = image_size[1] / calibration_size[1]
@@ -224,15 +224,13 @@ def make_undistort_maps(settings, image_size, balance):
     camera_matrix[1, :] *= scale_y
     camera_matrix[2, 2] = 1.0
 
-    rectified_matrix = cv2.fisheye.estimateNewCameraMatrixForUndistortRectify(
-        camera_matrix, distortion, image_size, np.eye(3), balance=balance)
     return cv2.fisheye.initUndistortRectifyMap(
-        camera_matrix, distortion, np.eye(3), rectified_matrix,
+        camera_matrix, distortion, np.eye(3), camera_matrix,
         image_size, cv2.CV_32FC1)
 
 
 def write_images(video, timestamps_ns, image_dir, extension, jpeg_quality,
-                 settings, balance):
+                 settings):
     """Undistort displayed frames and save them under their Unix-ns timestamps."""
     image_dir.mkdir(parents=True, exist_ok=True)
     capture = cv2.VideoCapture(str(video))
@@ -245,7 +243,7 @@ def write_images(video, timestamps_ns, image_dir, extension, jpeg_quality,
     if width <= 0 or height <= 0:
         capture.release()
         raise RuntimeError(f"invalid decoded video size: {width}x{height}")
-    map_x, map_y = make_undistort_maps(settings, (width, height), balance)
+    map_x, map_y = make_undistort_maps(settings, (width, height))
     index = 0
     try:
         while True:
@@ -332,8 +330,6 @@ def main():
                              "extrinsics (required unless --imu-only)")
     parser.add_argument("--imu-only", action="store_true",
                         help="Extract telemetry without decoding or writing images")
-    parser.add_argument("--balance", type=float, default=0.0,
-                        help="Undistortion field-of-view balance in [0, 1] (default: 0)")
     parser.add_argument("--skip-seconds", type=float, default=0.0,
                         help="Trim this duration from both IMU ends")
     parser.add_argument("--no-axis-align", action="store_true",
@@ -350,8 +346,6 @@ def main():
         parser.error("--settings is required unless --imu-only is used")
     if args.settings is not None and not args.settings.is_file():
         parser.error(f"camera settings not found: {args.settings}")
-    if not 0.0 <= args.balance <= 1.0:
-        parser.error("--balance must be in [0, 1]")
     if args.skip_seconds < 0.0:
         parser.error("--skip-seconds must be non-negative")
     if not 0 <= args.jpeg_quality <= 100:
@@ -387,7 +381,7 @@ def main():
                   f"to {image_dir}")
             written = write_images(
                 args.mp4, frame_timestamps_ns, image_dir, args.format,
-                args.jpeg_quality, args.settings, args.balance)
+                args.jpeg_quality, args.settings)
     except (RuntimeError, cv2.error) as error:
         sys.exit(f"[ERROR] {error}")
 
