@@ -48,7 +48,7 @@ Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer,
     mState(NO_IMAGES_YET), mSensor(sensor), mTrackedFr(0), mbStep(false),
     mbOnlyTracking(false), mbMapUpdated(false), mbVO(false), mpORBVocabulary(pVoc), mpKeyFrameDB(pKFDB),
     mbReadyToInitializate(false), mpSystem(pSys), mpViewer(NULL), bStepByStep(false),
-    mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(0.2),
+    mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpAtlas(pAtlas), mnLastRelocFrameId(0), time_recently_lost(1.0),
     mnInitialFrameId(0), mbCreatedMap(false), mnFirstFrameId(0), mpCamera2(nullptr), mpLastKeyFrame(static_cast<KeyFrame*>(NULL)),
     maruco_dict(aruco_dict), minit_tag_id(init_tag_id), minit_tag_size(init_tag_size)
 {
@@ -1331,7 +1331,10 @@ bool Tracking::PredictStateIMU()
         return false;
     }
 
-    if(mbMapUpdated && mpLastKeyFrame)
+    // In monocular IMU tracking, keep the prediction anchored to the previous
+    // frame when local mapping changes the map. Switching to the last-keyframe
+    // preintegration can introduce a discontinuity in the current pose.
+    if(mbMapUpdated && mpLastKeyFrame && mSensor != System::IMU_MONOCULAR)
     {
         const Eigen::Vector3f twb1 = mpLastKeyFrame->GetImuPosition();
         const Eigen::Matrix3f Rwb1 = mpLastKeyFrame->GetImuRotation();
@@ -1349,7 +1352,7 @@ bool Tracking::PredictStateIMU()
         mCurrentFrame.mPredBias = mCurrentFrame.mImuBias;
         return true;
     }
-    else if(!mbMapUpdated)
+    else if(!mbMapUpdated || mSensor == System::IMU_MONOCULAR)
     {
         const Eigen::Vector3f twb1 = mLastFrame.GetImuPosition();
         const Eigen::Matrix3f Rwb1 = mLastFrame.GetImuRotation();
